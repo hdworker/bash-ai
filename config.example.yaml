@@ -1,0 +1,8 @@
+api_key: ""
+base_url: ""
+model: "gpt-4o-mini"
+prompts:
+  chat: "You are a helpful assistant. Answer as concisely as possible. This machine is running %s %s."
+  cmd: "You can output only terminal commands! No info! No comments. No backticks. This system is running on %s like %s."
+  explain: "You can output only a number."
+  explain_text: "Explain what is the purpose of command with details for each option."

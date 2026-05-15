@@ -15,6 +15,7 @@ from collections import OrderedDict
 
 import distro
 import openai
+import yaml
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.ERROR)
@@ -75,37 +76,79 @@ def cache(maxsize=128):
     return decorator
 
 
-def get_api_key():
-    # load the api key from .config/openai
-    if os.path.exists(os.path.expanduser("~/.config/openai")):
-        with open(os.path.expanduser("~/.config/openai")) as f:
-            return f.read().strip()
-    else:
-        print(
-            "No api key found. Please create a file ~/.config/openai with your api key in it."
-        )
-        # ask for key and store it
-        api_key = input("Please enter your api key: ")
-        if api_key == "":
-            print("No api key provided. Exiting.")
-            sys.exit(1)
-        # make sure the directory exists
-        if not os.path.exists(os.path.expanduser("~/.config")):
-            os.mkdir(os.path.expanduser("~/.config"))
-        with open(os.path.expanduser("~/.config/openai"), "w") as f:
-            f.write(api_key)
+CONFIG_PATH = os.path.expanduser("~/.config/bashai")
 
-        return api_key
+DEFAULT_CONFIG = {
+    "api_key": "",
+    "base_url": "",
+    "model": "gpt-4o-mini",
+    "prompts": {
+        "chat": "You are a helpful assistant. Answer as concisely as possible. This machine is running %s %s.",
+        "cmd": "You can output only terminal commands! No info! No comments. No backticks. This system is running on %s like %s.",
+        "explain": "You can output only a number.",
+        "explain_text": "Explain what is the purpose of command with details for each option.",
+    },
+}
 
-def get_base_url():
-    url = os.getenv("BASHAI_API", None)
-    log.debug(f"Using API: {url}")
-    return url
 
-def get_model():
-    model = os.getenv("BASHAI_MODEL", "gpt-4o-mini")
-    log.debug(f"Using model: {model}")
-    return model
+_config = None
+
+def get_config():
+    global _config
+    if _config is None:
+        _config = load_config()
+    return _config
+
+
+def load_config():
+    config = DEFAULT_CONFIG.copy()
+    config["prompts"] = DEFAULT_CONFIG["prompts"].copy()
+
+    if os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH) as f:
+            user_config = yaml.safe_load(f) or {}
+        if "api_key" in user_config:
+            config["api_key"] = user_config["api_key"]
+        if "base_url" in user_config:
+            config["base_url"] = user_config["base_url"]
+        if "model" in user_config:
+            config["model"] = user_config["model"]
+        if "prompts" in user_config and isinstance(user_config["prompts"], dict):
+            for key in config["prompts"]:
+                if key in user_config["prompts"]:
+                    config["prompts"][key] = user_config["prompts"][key]
+
+    if not config["api_key"]:
+        if os.path.exists(os.path.expanduser("~/.config/openai")):
+            with open(os.path.expanduser("~/.config/openai")) as f:
+                config["api_key"] = f.read().strip()
+        else:
+            print("No api key found. Please add 'api_key' to %s" % CONFIG_PATH)
+            api_key = input("Please enter your api key: ")
+            if not api_key:
+                print("No api key provided. Exiting.")
+                sys.exit(1)
+            if not os.path.exists(os.path.expanduser("~/.config")):
+                os.mkdir(os.path.expanduser("~/.config"))
+            with open(CONFIG_PATH, "w") as f:
+                yaml.dump({**config, "api_key": api_key}, f, default_flow_style=False)
+            config["api_key"] = api_key
+
+    if not config["base_url"]:
+        env_url = os.getenv("BASHAI_API", None)
+        if env_url:
+            config["base_url"] = env_url
+        elif os.path.exists(os.path.expanduser("~/.config/openai_baseurl")):
+            with open(os.path.expanduser("~/.config/openai_baseurl")) as f:
+                config["base_url"] = f.read().strip()
+
+    env_model = os.getenv("BASHAI_MODEL", None)
+    if env_model:
+        config["model"] = env_model
+
+    log.debug("Config loaded: model=%s, base_url=%s" % (config["model"], config["base_url"]))
+    return config
+
 
 def get_context_files():
     context_files = os.listdir(os.getcwd())
@@ -244,8 +287,7 @@ def chat(client, prompt, model):
         history.append(
             {
                 "role": "system",
-                "content": "You are a helpful assistant. Answer as concisely as possible. This machine is running %s %s."
-                % (PLATFORM, distribution),
+                "content": get_config()["prompts"]["chat"] % (PLATFORM, distribution),
             }
         )
 
@@ -270,7 +312,7 @@ def get_cmd(client, prompt, model, context_prompt=""):
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": "You can output only terminal commands! No info! No comments. No backticks. This system is running on %s like %s." % (PLATFORM, distribution)},
+            {"role": "system", "content": get_config()["prompts"]["cmd"] % (PLATFORM, distribution)},
             {"role": "user", "content": "Generate a single bash command to %s\n%s" % (prompt, context_prompt)},
         ],
         max_tokens=100,
@@ -299,7 +341,7 @@ def get_cmd_list(client, prompt, model, context_files=[], n=5):
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": "You can output only terminal commands! No info! No comments. No backticks. Running on %s like %s. %s" % (PLATFORM, distribution, context_prompt)},
+            {"role": "system", "content": get_config()["prompts"]["cmd"] % (PLATFORM, distribution) + " " + context_prompt},
             {"role": "user", "content": "Generate a single bash command to %s" % prompt},
         ],
         max_tokens=50,
@@ -329,7 +371,7 @@ def get_needed_context(cmd, client, model):
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": "You can output only a number."},
+            {"role": "system", "content": get_config()["prompts"]["explain"]},
             {"role": "user", "content": prompt},
         ],
         max_tokens=4,
@@ -352,7 +394,7 @@ def get_explaination(client, cmd, model):
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": "Explain what is the purpose of command with details for each option."},
+            {"role": "system", "content": get_config()["prompts"]["explain_text"]},
             {"role": "user", "content": cmd},
         ],
         max_tokens=250,
@@ -395,8 +437,8 @@ def square_text(text):
     return out
 
 
-def print_explaination(client, cmd, model):
-    explaination = get_explaination(client, cmd, model)
+def print_explaination(client, cmd):
+    explaination = get_explaination(client, cmd, get_config()["model"])
     h_explaination = highlight(cmd, square_text(explaination.strip()))
     print("-" * 27)
     print("| *** \033[1;31m Explaination: \033[0m *** |")
@@ -457,13 +499,10 @@ if __name__ == "__main__":
     # setup control-c handler
     signal.signal(signal.SIGINT, signal_handler)
 
-    # get the api key
-    api_key = get_api_key()
-    base_url = get_base_url()
-    model = get_model()
-    log.info("Using model: %s" % model)
-    log.info("Using base url: %s" % base_url)
-    client = openai.OpenAI(api_key=api_key, base_url=base_url)
+    config = get_config()
+    log.info("Using model: %s" % config["model"])
+    log.info("Using base url: %s" % config["base_url"])
+    client = openai.OpenAI(api_key=config["api_key"], base_url=config["base_url"] if config["base_url"] else None)
 
     context = args.c or args.C >= 0
     context_files = []
@@ -471,7 +510,7 @@ if __name__ == "__main__":
     if context:
         needed_contxt = args.C
         if needed_contxt < 0:
-            needed_contxt = get_needed_context(prompt, client, model)
+            needed_contxt = get_needed_context(prompt, client, config["model"])
         if needed_contxt >= 0:
             print("AI choose to %s as context." % CONTEXT[needed_contxt]["name"])
             context_prompt += CONTEXT[needed_contxt]["function"]()
@@ -489,7 +528,7 @@ if __name__ == "__main__":
         sys.exit(0)
 
     # get the command from the ai
-    cmd = get_cmd(client, prompt, model, context_prompt=context_prompt)
+    cmd = get_cmd(client, prompt, config["model"], context_prompt=context_prompt)
 
     if args.e:
         print_explaination(client, cmd)
@@ -500,7 +539,7 @@ if __name__ == "__main__":
     # validate the command
     if input("Do you want to execute this command? [Y/n] ").lower() == "n":
         # execute the command with Popen and save it to the history
-        cmds = get_cmd_list(client, prompt, model, context_files=context_files, n=args.n)
+        cmds = get_cmd_list(client, prompt, config["model"], context_files=context_files, n=args.n)
         print("Here are some other commands you might want to execute:")
         index = 0
         for cmd in cmds:
