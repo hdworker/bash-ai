@@ -40,13 +40,13 @@ function check_pip_packages_version() {
 
     if [ $DIFF -gt 604800 ] || [ "$LAST_VERSION" != "$VERSION" ]; then
         echo "Updating pip packages..."
-        pip3 install -q --upgrade pip
-        pip3 install -q --upgrade -r $REQ_PATH
+        pip install -q --upgrade pip
+        pip install -q --upgrade -r $REQ_PATH
         touch $ENV_PATH/.last_update
         echo "Pip packages updated!"
         echo $VERSION > $ENV_PATH/.last_update
     fi
-    
+
 }
 
 
