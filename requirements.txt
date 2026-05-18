@@ -1,3 +1,5 @@
 openai
 distro
 pyyaml
+pytest
+pytest-mock

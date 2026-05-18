@@ -293,7 +293,7 @@ def chat(client, prompt, model):
 
     history.append({"role": "user", "content": prompt})
     response = client.chat.completions.create(model=model, messages=history)
-    content = response.choices[0].message.content
+    content = response.choices[0].message.content or ""
     # trim the content
     content = content.strip()
     history.append({"role": "assistant", "content": content})
@@ -320,6 +320,8 @@ def get_cmd(client, prompt, model, context_prompt=""):
         top_p=1,
     )
     cmd = response.choices[0].message.content
+    if cmd is None:
+        cmd = ""
 
     # sanitize backticks and "```bash"
     cmd = cmd.replace("```bash\n", "").replace("\n```", "")
@@ -350,7 +352,7 @@ def get_cmd_list(client, prompt, model, context_files=[], n=5):
         n=n,
     )
     cmd_list = [
-        x.message.content.replace("```bash\n", "").replace("\n```", "") for x in response.choices
+        (x.message.content or "").replace("```bash\n", "").replace("\n```", "") for x in response.choices
     ]
     # trim the cmd
     cmd_list = list(set([x.strip() for x in cmd_list]))
