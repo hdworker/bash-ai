@@ -76,7 +76,7 @@ def cache(maxsize=128):
     return decorator
 
 
-CONFIG_PATH = os.path.expanduser("~/.config/bashai")
+CONFIG_PATH = os.path.expanduser("~/.config/bashai/config.yaml")
 
 DEFAULT_CONFIG = {
     "api_key": "",
@@ -128,8 +128,8 @@ def load_config():
             if not api_key:
                 print("No api key provided. Exiting.")
                 sys.exit(1)
-            if not os.path.exists(os.path.expanduser("~/.config")):
-                os.mkdir(os.path.expanduser("~/.config"))
+            if not os.path.exists(os.path.expanduser("~/.config/bashai")):
+                os.makedirs(os.path.expanduser("~/.config/bashai"))
             with open(CONFIG_PATH, "w") as f:
                 yaml.dump({**config, "api_key": api_key}, f, default_flow_style=False)
             config["api_key"] = api_key
